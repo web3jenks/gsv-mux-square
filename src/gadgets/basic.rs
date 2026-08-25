@@ -62,11 +62,16 @@ pub fn full_subtracter<C: CircuitContext>(
     (result, carry)
 }
 
+/// 2:1 mux: `c ? a : b`.
+///
+/// Free-XOR identity: `((a XOR b) AND c) XOR b`. Cost is 1 AND, not 3.
 pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: WireId) -> WireId {
-    let [d, f, g] = array::from_fn(|_| circuit.issue_wire());
-    circuit.add_gate(Gate::nand(a, c, d));
-    circuit.add_gate(Gate::and_variant(c, b, f, [true, false, true]));
-    circuit.add_gate(Gate::nand(d, f, g));
+    let axb = circuit.issue_wire();
+    let t = circuit.issue_wire();
+    let g = circuit.issue_wire();
+    circuit.add_gate(Gate::xor(a, b, axb));
+    circuit.add_gate(Gate::and(axb, c, t));
+    circuit.add_gate(Gate::xor(t, b, g));
     g
 }
 

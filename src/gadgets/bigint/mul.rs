@@ -182,6 +182,94 @@ pub fn mul_karatsuba<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
+/// Karatsuba squaring: `(a0 + a1 B)^2 = a0^2 + ((a0+a1)^2 - a0^2 - a1^2) B + a1^2 B^2`.
+/// Two recursive squares plus one square of the sum replace three recursive multiplies.
+#[bn_component(arity = "a.len() * 2")]
+pub fn square_karatsuba<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
+    let len = a.len();
+
+    if len < 5 {
+        return mul_naive(circuit, a, a);
+    }
+
+    let mut result_bits = vec![FALSE_WIRE; len * 2];
+    let len_0 = len / 2;
+    let len_1 = len.div_ceil(2);
+
+    let (a_0, a_1) = (*a).clone().split_at(len_0);
+
+    let sq_0 = if is_use_karatsuba(len_0) {
+        square_karatsuba(circuit, &a_0)
+    } else {
+        mul_naive(circuit, &a_0, &a_0)
+    };
+
+    let sq_1 = if is_use_karatsuba(len_1) {
+        square_karatsuba(circuit, &a_1)
+    } else {
+        mul_naive(circuit, &a_1, &a_1)
+    };
+
+    let mut extended_a_0 = a_0.bits.clone();
+    let mut extended_sq_0 = sq_0.bits.clone();
+
+    if len_0 < len_1 {
+        extend_with_zero(circuit, &mut extended_a_0);
+        extend_with_zero(circuit, &mut extended_sq_0);
+        extend_with_zero(circuit, &mut extended_sq_0);
+    }
+
+    let sum_a = add::add(circuit, &BigIntWires { bits: extended_a_0 }, &a_1);
+
+    let mut sq_parts = add::add(
+        circuit,
+        &BigIntWires {
+            bits: extended_sq_0,
+        },
+        &sq_1,
+    );
+    extend_with_zero(circuit, &mut sq_parts.bits);
+
+    let sq_sum = if is_use_karatsuba(sum_a.len()) {
+        square_karatsuba(circuit, &sum_a)
+    } else {
+        mul_naive(circuit, &sum_a, &sum_a)
+    };
+
+    let cross_term_full = add::sub_without_borrow(circuit, &sq_sum, &sq_parts);
+    let cross_term = BigIntWires {
+        bits: cross_term_full.bits[..(len + 1)].to_vec(),
+    };
+
+    result_bits[..(len_0 * 2)].copy_from_slice(&sq_0.bits);
+
+    let segment = BigIntWires {
+        bits: result_bits[len_0..(len_0 + len + 1)].to_vec(),
+    };
+    let new_segment = add::add(circuit, &segment, &cross_term);
+    result_bits[len_0..(len_0 + len + 2)].copy_from_slice(&new_segment.bits);
+
+    let segment2 = BigIntWires {
+        bits: result_bits[(2 * len_0)..].to_vec(),
+    };
+    let new_segment2 = add::add(circuit, &segment2, &sq_1);
+    result_bits[(2 * len_0)..].copy_from_slice(&new_segment2.bits[..(2 * len_1)]);
+
+    BigIntWires { bits: result_bits }
+}
+
+pub fn square<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
+    let len = a.len();
+    if len < 5 {
+        return mul_naive(circuit, a, a);
+    }
+    if is_use_karatsuba(len) {
+        square_karatsuba(circuit, a)
+    } else {
+        mul_naive(circuit, a, a)
+    }
+}
+
 pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let len = a.len();

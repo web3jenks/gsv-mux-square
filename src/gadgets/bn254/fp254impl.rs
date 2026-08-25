@@ -283,7 +283,9 @@ pub trait Fp254Impl {
     /// # Returns
     /// Square in Montgomery form
     fn square_montgomery<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
-        Self::mul_montgomery(circuit, a, a)
+        assert_eq!(a.len(), Self::N_BITS);
+        let sq_result = bigint::square(circuit, a);
+        Self::montgomery_reduce(circuit, &sq_result)
     }
 
     /// Montgomery reduction for circuit wires
